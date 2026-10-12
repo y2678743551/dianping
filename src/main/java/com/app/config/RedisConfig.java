@@ -10,9 +10,9 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class RedisConfig {
 
-    private final String REDIS_PORT;
-    private final String REDIS_HOST;
-    private final String REDIS_PASSWORD;
+    private static String REDIS_PORT;
+    private static String REDIS_HOST;
+    private static String REDIS_PASSWORD;
 
     RedisConfig(@Value("${spring.data.redis.host}") String host,
                 @Value("${spring.data.redis.port}") String port, @Value("${spring.data.redis.password}") String password) {
