@@ -72,7 +72,7 @@ public class UserController {
     @PostMapping("/logout")
     public Result logout(){
         userService.logout();
-        return Result.fail("功能未完成");
+        return Result.ok();
     }
 
     @GetMapping("/me")
