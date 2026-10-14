@@ -6,13 +6,13 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @MapperScan("com.app.mapper")
 @SpringBootApplication
-public class DianPingApplication {
+public class Main {
 
 
     public static void main(String[] args) {
 
 
-            SpringApplication.run(DianPingApplication.class, args);
+            SpringApplication.run(Main.class, args);
     }
 
 }

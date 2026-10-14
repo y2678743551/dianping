@@ -22,7 +22,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 @Slf4j
-@Component
+//@Component
 public class VoucherOrderHandler implements SmartLifecycle {
     @Resource
     private IVoucherOrderService voucherOrderService;
@@ -57,6 +57,8 @@ public class VoucherOrderHandler implements SmartLifecycle {
     }
     private void handleVoucherOrder(VoucherOrder voucherOrder) {
         Long userId= voucherOrder.getUserId();
+        log.debug("消费到下单消息，准备抢锁: orderId={}, userId={}, voucherId={}",
+                voucherOrder.getId(), userId, voucherOrder.getVoucherId());
         RLock lock =redissonClient.getLock("order:"+userId);
 
         // new SimpleRedisLock("order:"+userId,stringRedisTemplate);

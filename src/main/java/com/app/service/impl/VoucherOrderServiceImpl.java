@@ -1,16 +1,20 @@
 package com.app.service.impl;
 
-import cn.hutool.core.bean.BeanUtil;
+
+import com.app.config.RabbitMQConfig;
 import com.app.dto.Result;
 import com.app.entity.VoucherOrder;
 import com.app.mapper.VoucherOrderMapper;
 import com.app.service.ISeckillVoucherService;
 import com.app.service.IVoucherOrderService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.app.utils.RedisConstants;
 import com.app.utils.RedisWorker;
 import com.app.utils.UserHolder;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.AmqpException;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.connection.stream.*;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -38,6 +42,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
     private RedisWorker redisWorker;
     @Resource
     private StringRedisTemplate stringRedisTemplate;
+    @Resource
+    private RabbitTemplate rabbitTemplate;
 
 
     private static final DefaultRedisScript<Long> SECKILL_SCRIPT;
@@ -72,18 +78,43 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         Long userId = UserHolder.getUser().getId();
 
         Long orderId = redisWorker.nextId("order");
+        log.debug("收到秒杀请求: voucherId={}, userId={}, orderId={}", voucherId, userId, orderId);
 
         Long result = stringRedisTemplate.execute(SECKILL_SCRIPT,
                 Collections.emptyList(),
                 voucherId.toString(),
-                userId.toString(),
-                orderId.toString());
+                userId.toString());
         if (result != 0) {
+            log.debug("秒杀被 lua 拦截: voucherId={}, userId={}, result={}({})", voucherId, userId, result,
+                    result == 1 ? "库存不足" : "不能重复下单");
             return Result.fail(result == 1 ? "库存不足" : "不能重复下单");
 
         }
 
+        VoucherOrder voucherOrder = new VoucherOrder();
+        voucherOrder.setId(orderId);
+        voucherOrder.setUserId(userId);
+        voucherOrder.setVoucherId(voucherId);
+
+        try {
+            rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EXCHANGE,
+                    RabbitMQConfig.ORDER_ROUTING_KEY, voucherOrder);
+        } catch (AmqpException e) {
+
+            log.error("下单消息投递失败，回补 Redis: orderId={}, voucherId={}, userId={}",
+                    orderId, voucherId, userId, e);
+            rollbackRedisStock(voucherId, userId);
+            return Result.fail("下单失败，请重试");
+        }
+
+        log.debug("秒杀校验通过，消息已投递 MQ: orderId={}, userId={}, voucherId={}", orderId, userId, voucherId);
         return Result.ok(orderId);
+    }
+
+    /** 消息投递失败时，把 lua 里扣掉的库存和去重标记补回来 */
+    private void rollbackRedisStock(Long voucherId, Long userId) {
+        stringRedisTemplate.opsForValue().increment(RedisConstants.SECKILL_STOCK_KEY + voucherId);
+        stringRedisTemplate.opsForSet().remove(RedisConstants.SECKILL_ORDER_KEY + voucherId, userId.toString());
     }
 //    @Override
 //    public Result secondKillVocher(Long voucherId) {
@@ -160,6 +191,8 @@ public class VoucherOrderServiceImpl extends ServiceImpl<VoucherOrderMapper, Vou
         }
 
         save(voucherOrder);
+        log.debug("订单落库成功: orderId={}, userId={}, voucherId={}",
+                voucherOrder.getId(), userId, voucherOrder.getVoucherId());
 
     }
 }

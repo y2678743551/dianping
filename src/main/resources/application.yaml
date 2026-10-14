@@ -21,6 +21,23 @@ spring:
           max-idle: 10
           min-idle: 1
           time-between-eviction-runs: 10s
+  rabbitmq:
+    host: ${dp.rabbitmq.host}
+    port: ${dp.rabbitmq.port}
+    username: ${dp.rabbitmq.username}
+    password: ${dp.rabbitmq.password}
+    virtual-host: /
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    listener:
+      simple:
+        acknowledge-mode: manual
+        prefetch: 1
+        concurrency: 1
+        retry:
+          enabled: false
   jackson:
     default-property-inclusion: non_null # JSON处理时忽略非空字段
 mybatis-plus:
