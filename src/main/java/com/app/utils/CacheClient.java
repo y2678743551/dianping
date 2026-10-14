@@ -4,6 +4,7 @@ import cn.hutool.core.util.BooleanUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
+import com.github.benmanes.caffeine.cache.Cache;
 import jakarta.annotation.Resource;
 import org.springframework.cglib.core.internal.Function;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -18,6 +19,12 @@ public class CacheClient
 {   @Resource
     private StringRedisTemplate stringRedisTemplate;
 
+    @Resource
+    private Cache<String, Object> localCache;
+
+
+    private static final String LOCAL_CACHE_PREFIX = "cache:";
+
 
     private void set(String key,Object value,Long time,TimeUnit unit){
         stringRedisTemplate.opsForValue().set(key, JSONUtil.toJsonStr(value), time,unit);
@@ -25,11 +32,21 @@ public class CacheClient
     }
     public <R ,ID> R queryWithMutex(String prefix, ID id, Class<R> type, Function<ID,R> dbFallback,TimeUnit unit) {
         String key = prefix+id;
+
+        // 1. 本地一级缓存
+        Object local = getLocalCache(key);
+        if (local != null) {
+            return type.cast(local);
+        }
+
+        // 2. Redis
         String shopJson=stringRedisTemplate.opsForValue().get(key);
 
         if(StrUtil.isNotBlank(shopJson)){
 
-            return JSONUtil.toBean(shopJson,type);
+            R result = JSONUtil.toBean(shopJson,type);
+            putLocalCache(key, result);
+            return result;
 
         }
         if (shopJson!=null){
@@ -61,9 +78,29 @@ public class CacheClient
             unlock(lockKey);
         }
         set(key,shop, RedisConstants.CACHE_SHOP_TTL, unit);
-
+        putLocalCache(key, shop);
 
         return shop;
+    }
+
+
+    private Object getLocalCache(String key) {
+        if (!key.startsWith(LOCAL_CACHE_PREFIX)) {
+            return null;
+        }
+        return localCache.getIfPresent(key);
+    }
+
+
+    private void putLocalCache(String key, Object value) {
+        if (value != null && key.startsWith(LOCAL_CACHE_PREFIX)) {
+            localCache.put(key, value);
+        }
+    }
+
+
+    public void evictLocalCache(String prefix, Object id) {
+        localCache.invalidate(prefix + id);
     }
 
 

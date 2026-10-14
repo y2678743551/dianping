@@ -74,6 +74,7 @@ public class VoucherOrderHandler implements SmartLifecycle {
         }
     }
     private void run() {
+        MapRecord<String, Object, Object> record=null;
         while (running){
             try {
                 List<@NonNull MapRecord<String, Object, Object>> list = stringRedisTemplate.opsForStream().read(
@@ -84,21 +85,24 @@ public class VoucherOrderHandler implements SmartLifecycle {
                 if(list==null||list.isEmpty()){
                     continue;
                 }
-                MapRecord<String, Object, Object> record = list.get(0);
+                record= list.get(0);
                 Map<Object,Object> value=record.getValue();
                 VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(value, new VoucherOrder(),true);
 
                 handleVoucherOrder(voucherOrder);
-                stringRedisTemplate.opsForStream().acknowledge(queueName,"g1",record.getId());
+
             } catch (Exception e) {
                 log.error("处理订单异常:",e);
                 handlerPendingList();
+            } finally {
+                if (record!=null)
+                    stringRedisTemplate.opsForStream().acknowledge(queueName,"g1",record.getId());
             }
         }
     }
-
     private void handlerPendingList(){
-        while (true){
+        MapRecord<String, Object, Object> record=null;
+        while (running){
             try {
                 List<@NonNull MapRecord<String, Object, Object>> list = stringRedisTemplate.opsForStream().read(
                         Consumer.from("g1", "c1"),
@@ -108,7 +112,7 @@ public class VoucherOrderHandler implements SmartLifecycle {
                 if(list==null||list.isEmpty()){
                     break;
                 }
-                MapRecord<String, Object, Object> record = list.get(0);
+                record = list.get(0);
                 Map<Object,Object> value=record.getValue();
 
                 VoucherOrder voucherOrder = BeanUtil.fillBeanWithMap(value, new VoucherOrder(),true);
@@ -118,6 +122,9 @@ public class VoucherOrderHandler implements SmartLifecycle {
             } catch (Exception e) {
                 log.error("处理订单异常:",e);
                 break;
+            }finally {
+                if (record!=null)
+                    stringRedisTemplate.opsForStream().acknowledge(queueName,"g1",record.getId());
             }
         }
     }

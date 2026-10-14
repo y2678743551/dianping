@@ -15,6 +15,7 @@ import com.app.utils.RedisConstants;
 import com.app.utils.RedisData;
 import com.app.utils.SystemConstants;
 import jakarta.annotation.Resource;
+import org.redisson.api.RBloomFilter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.geo.Distance;
 import org.springframework.data.geo.GeoResult;
@@ -48,8 +49,14 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
     private StringRedisTemplate stringRedisTemplate;
     @Autowired
     private CacheClient cacheClient;
+    @Resource
+    private RBloomFilter<Long> shopBloomFilter;
     @Override
     public Result queryById(Long id) {
+        // 布隆过滤器挡在最前面：一定不存在的 id 不进 Redis、不进 DB
+        if (!shopBloomFilter.contains(id)) {
+            return Result.fail("店铺不存在");
+        }
         Shop shop=cacheClient.queryWithMutex(RedisConstants.CACHE_SHOP_KEY,id,Shop.class,this::getById,TimeUnit.MINUTES);
         if(shop!=null)
             return Result.ok(shop);
@@ -147,6 +154,7 @@ public class ShopServiceImpl extends ServiceImpl<ShopMapper, Shop> implements IS
         }
         updateById(shop);
         stringRedisTemplate.delete(RedisConstants.CACHE_SHOP_KEY+id);
+        cacheClient.evictLocalCache(RedisConstants.CACHE_SHOP_KEY, id);
         return Result.ok();
     }
 
